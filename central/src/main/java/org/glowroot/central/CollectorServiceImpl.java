@@ -188,7 +188,7 @@ class CollectorServiceImpl extends CollectorServiceGrpc.CollectorServiceImplBase
     @Override
     public void collectGaugeValues(GaugeValueMessage request,
                                    StreamObserver<GaugeValueResponseMessage> responseObserver) {
-        throttledCollectGaugeValues(request, responseObserver).toCompletableFuture().join();
+        collectGaugeValuesUnderThrottle(request, responseObserver).toCompletableFuture().join();
     }
 
     @Override
@@ -202,7 +202,7 @@ class CollectorServiceImpl extends CollectorServiceGrpc.CollectorServiceImplBase
     @Override
     public void collectTrace(OldTraceMessage request,
                              StreamObserver<EmptyMessage> responseObserver) {
-        throttledCollectTrace(request.getAgentId(), false, request.getTrace(), responseObserver).toCompletableFuture().join();
+        collectTraceUnderThrottle(request.getAgentId(), false, request.getTrace(), responseObserver).toCompletableFuture().join();
     }
 
     @Instrumentation.Transaction(transactionType = "gRPC", transactionName = "Log",
@@ -254,16 +254,7 @@ class CollectorServiceImpl extends CollectorServiceGrpc.CollectorServiceImplBase
         });
     }
 
-    private CompletionStage<?> throttledCollectGaugeValues(GaugeValueMessage request,
-                                             StreamObserver<GaugeValueResponseMessage> responseObserver) {
 
-        return collectGaugeValuesUnderThrottle(request, responseObserver);
-    }
-
-    private CompletionStage<?> throttledCollectTrace(String agentId, boolean postV09, Trace trace,
-                                       StreamObserver<EmptyMessage> responseObserver) {
-        return collectTraceUnderThrottle(agentId, postV09, trace, responseObserver);
-    }
 
     private <T> void throttle(String agentId, boolean postV09, String collectionType,
                               StreamObserver<T> responseObserver, Runnable runnable) {
@@ -273,6 +264,7 @@ class CollectorServiceImpl extends CollectorServiceGrpc.CollectorServiceImplBase
             acquired = semaphore.tryAcquire(1, MINUTES);
         } catch (InterruptedException e) {
             // probably shutdown requested
+            Thread.currentThread().interrupt();
             responseObserver.onError(e);
             return;
         }
